@@ -25,7 +25,7 @@ function scoreWords(user,reference){
 }
 const currentStory=()=>ALL.find(x=>x.id===cfg().active?.id);
 function selectOptions(stories,selected){return stories.map(x=>`<option value="${e(x.id)}" ${x.id===selected?'selected':''}>${e(x.title)} (${x.pairs.map(p=>p[0]).join(' ').trim().split(/\s+/).length} parole DE)</option>`).join('')}
-function render(){
+function renderReading2(){
  const st=cfg(),list=ALL.filter(x=>x.level===st.level),active=st.active,story=currentStory();
  let h=`<div class="intro"><div class="eyebrow">Lettura e comprensione II</div><h1>Traduzione di testi completi</h1><p class="muted">${list.length} testi originali per il livello ${e(st.level)}, con due direzioni e correzione automatica delle parole. Il punteggio misura la corrispondenza lessicale con la soluzione di riferimento, non la correttezza semantica o grammaticale.</p></div>`;
  if(!active||!story){
@@ -50,5 +50,5 @@ function next(){const active=cfg().active,story=currentStory();if(!active?.curre
 document.addEventListener('click',ev=>{const btn=ev.target.closest('button[data-r2]');if(!btn||btn.disabled)return;ev.preventDefault();const cmd=btn.dataset.r2;const st=cfg();if(cmd==='start'){startWith(document.getElementById('r2-story')?.value||ALL.find(x=>x.level===st.level)?.id)}else if(cmd==='random'){const list=ALL.filter(x=>x.level===st.level);if(list.length)startWith(list[Math.floor(Math.random()*list.length)].id)}else if(cmd==='next'){next()}else if(cmd==='cancel'||cmd==='again'){st.active=null;save();render()}else if(cmd==='restart'){startWith(st.active.id)}});
 document.addEventListener('change',ev=>{const st=cfg();if(ev.target.id==='r2-level'){st.level=ev.target.value;st.story='';st.active=null;save();render()}else if(ev.target.id==='r2-dir'){st.dir=ev.target.value;save();render()}else if(ev.target.id==='r2-story'){st.story=ev.target.value;save();}});
 document.addEventListener('submit',ev=>{if(ev.target.id==='r2-answer-form'){ev.preventDefault();scoreAnswer(document.getElementById('r2-answer')?.value||'')}});
-window.DTReading2={render,count:()=>ALL.length,scoreWords,segmentStory};
+window.DTReading2={render:renderReading2,count:()=>ALL.length,scoreWords,segmentStory};
 })();
