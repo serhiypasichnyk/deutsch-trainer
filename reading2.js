@@ -70,7 +70,7 @@ function scoreWords(user,reference,language='it',equivalents=[]){
 const DIGNOSTIC_RULES={
  'R3-A1-001':[
   {id:'floor',kind:'grammatica',level:'errore',pattern:/\bauf\s+dem\s+zweite(?:n)?\s+stock\b/i,fix:'im zweiten Stock',why:'Per il piano dell’edificio si usa im (= in dem); dopo dem l’aggettivo ordinale prende -en.'},
-  {id:'stop',kind:'genere e ortografia',level:'errore',pattern:/\bder\s+haltstalle\b/i,fix:'die Haltestelle',why:'Haltestelle è femminile; la grafia contiene -e- e termina in -stelle.'},
+  {id:'stop',kind:'genere e ortografia',level:'errore',pattern:/\bder\s+halt(?:e)?st(?:e|a)lle\b/i,fix:'die Haltestelle',why:'Haltestelle è femminile; la grafia contiene -e- e termina in -stelle.'},
   {id:'bring',kind:'verbo separabile',level:'errore',pattern:/\bbring\b[^.!?\n]{0,65}?\bkein(?:e|en)?\s+essen\b(?![^.!?\n]{0,16}\bmit\b)/i,fix:'Bring bitte kein Essen mit.',why:'Il verbo mitbringen è separabile: nell’imperativo la particella mit resta alla fine.'},
   {id:'imperative',kind:'imperativo e pronomi',level:'errore',pattern:/\b(?:sagt|sage)\s+mir\b/i,fix:'sag es mir bitte',why:'Con du si usa sag; es riprende il contenuto da comunicare.'},
   {id:'balcony',kind:'preposizione',level:'errore',pattern:/\b(?:im|in\s+dem)\s+balkon\b/i,fix:'auf dem Balkon',why:'Per esprimere che le sedie si trovano sul balcone si usa auf + dativo.'},
@@ -78,6 +78,9 @@ const DIGNOSTIC_RULES={
   {id:'additional',kind:'scelta lessicale',level:'sfumatura',pattern:/\b(?:ich\s+habe|habe\s+ich)\s+noch\s+zwei\s+st(?:u|ue|ü)h?le\b/i,fix:'Ich habe auch zwei Stühle.',why:'Anche corrisponde ad auch; noch zwei indica invece altre due sedie.'},
   {id:'shon',kind:'ortografia',level:'errore',pattern:/\bshoen\b/i,fix:'schön / schoen',why:'La forma con oe è corretta, ma manca la c di schön.'},
   {id:'stuele',kind:'ortografia',level:'errore',pattern:/\bstuele\b/i,fix:'Stühle / Stuehle',why:'La forma con ue è corretta, ma deve contenere anche h.'},
+  {id:'schon',kind:'ortografia',level:'errore',pattern:/\bmeine\s+wohnung\s+ist\s+klein\s*,\s*aber\s+schon\b/i,fix:'Meine Wohnung ist klein, aber schön.',why:'Schon significa già; schön significa bello. Si può scrivere anche schoen.'},
+  {id:'kase',kind:'ortografia',level:'errore',pattern:/\bkase\b/i,fix:'Käse / Kaese',why:'Käse si scrive con ä oppure ae: Kase non equivale a Käse.'},
+  {id:'horen',kind:'ortografia',level:'errore',pattern:/\bhoren\b/i,fix:'hören / hoeren',why:'Hören richiede ö oppure oe: horen non è la forma corretta.'},
   {id:'evening',kind:'omissione',level:'errore',check:(t)=>/\bschreib\s+mir\b/i.test(t)&&!/\b(?:heute\s+abend|heuteabend|am\s+abend|heut\s+abend)\b/i.test(t),fix:'Schreib mir bitte heute Abend.',why:'Il testo specifica stasera: heute Abend è stato omesso.'}
  ]
 };
