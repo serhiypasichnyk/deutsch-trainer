@@ -26,6 +26,38 @@ const parseMeta=row=>{try{return JSON.parse(row?.[12]||'{}')}catch{return{}}};
 function eventFromRow(row){const type=String(row[4]||'').split('|')[1]||'deit',level=String(row[4]||'').split('|')[2]||'A1',m=parseMeta(row);return {uid:String(row[10]),session:String(row[0]||''),date:m.timestamp||String(row[1]||'')+'T12:00:00.000Z',id:String(row[2]||''),type,level,prompt:m.prompt||'',answer:String(row[5]||''),expected:m.expected||'',score:row[6]===null||row[6]===undefined||row[6]===''?null:Number(row[6]),manual:!!m.manual,ungraded:!!m.ungraded,percent:Number.isFinite(Number(m.percent))?Number(m.percent):null,matched:Number(m.matched)||0,referenceWords:Number(m.referenceWords)||0,enteredWords:Number(m.enteredWords)||0,lexicalPercent:m.lexicalPercent==null?null:Number(m.lexicalPercent),grammarPercent:m.grammarPercent==null?null:Number(m.grammarPercent),diagnostics:Array.isArray(m.diagnostics)?m.diagnostics:[],assessment:m.assessment||'',modifiedAt:m.modifiedAt||m.timestamp||''}}
 function toDate(val){return typeof val==='string'&&/^\d{4}-\d{2}-\d{2}/.test(val)?val.slice(0,10):new Date().toISOString().slice(0,10)}
 function reviewAfter(e){if(e.score===null||e.type==='newwords')return;const key=e.id+'|'+e.type, old=state.reviews[key];const time=Date.parse(e.modifiedAt||e.date)||Date.now();if(old&&old.last&&old.last>time)return;const streak=e.score===2?((old?.streak||0)+1):0;const interval=e.score===2?[1,3,7,14,30,60][Math.min(streak-1,5)]:e.score===1?0.25:0;state.reviews[key]={seen:true,score:e.score,streak,attempts:(old?.attempts||0)+1,correct:(old?.correct||0)+(e.score===2?1:0),last:time,due:time+interval*86400000}}
+
+/* Separate W:Z fields in Vocabolario are generated exclusively from app
+   verification events. Never modify E (user translation) or H (old review status).
+   Since all events are fetched before this call, counts converge across devices. */
+async function syncKnowledgeToSheet(){
+ const [idsResponse, existingResponse]=await Promise.all([
+  api('/values/'+encodeURIComponent("'Vocabolario'!A2:A4200")),
+  api('/values/'+encodeURIComponent("'Vocabolario'!W2:Z4200"))
+ ]);
+ const ids=idsResponse.values||[],existing=existingResponse.values||[],updates=[];
+ const formatDate=value=>value&&Number.isFinite(Number(value))?new Date(Number(value)).toISOString().slice(0,10):'';
+ for(let i=0;i<ids.length;i++){
+  const id=String(ids[i]?.[0]||'');
+  if(!/^DE-/.test(id))continue;
+  const info=state.knowledge?.[id];
+  if(!info||!['learning','known'].includes(info.stage))continue;
+  const verified=Math.max(0,Math.floor(Number(info.verifiedKnown)||0));
+  const confirmed=info.stage==='known'&&verified>=10;
+  const status=confirmed?'Conosciuta e consolidata':info.stage==='known'?'Conosciuta (non consolidata)':'In apprendimento';
+  const desired=[status,String(verified),formatDate(info.lastVerifiedAt),confirmed?formatDate(info.consolidatedAt):''];
+  const current=existing[i]||[];
+  if(desired.every((v,j)=>v===String(current[j]??'')))continue;
+  updates.push({range:"'Vocabolario'!W"+(i+2)+':Z'+(i+2),values:[desired]});
+ }
+ for(let i=0;i<updates.length;i+=100){
+  await api('/values:batchUpdate',{method:'POST',body:JSON.stringify({
+   valueInputOption:'RAW',data:updates.slice(i,i+100)
+  })});
+ }
+ return updates.length;
+}
+
 async function syncNow(){if(syncing)return;if(!navigator.onLine){setMessage('Offline: sincronizzazione in attesa.');needsSync=true;return}if(!accessToken||Date.now()>=expiresAt){setMessage('Collega Google o rinnova l’autorizzazione per sincronizzare.',true);needsSync=true;return}syncing=true;needsSync=false;try{
 // Confirm target has the exact expected worksheet, preventing writes to an unrelated file.
 let meta=await api('?fields=spreadsheetId,sheets(properties(title))');const sheets=(meta.sheets||[]).map(s=>s.properties?.title);if(!sheets.includes('Verifiche')||!sheets.includes('Vocabolario'))throw Error('Il Google Sheet non contiene le schede Verifiche e Vocabolario.');
@@ -42,7 +74,8 @@ if(updates.length){for(let i=0;i<updates.length;i+=100){await api('/values:batch
 let uploaded=0;for(let i=0;i<newEvents.length;i+=100){const items=newEvents.slice(i,i+100),rows=items.map(e=>{const kind=e.type==='newwords'?'Nuove parole':e.type==='deit'||e.type==='choice'?'DE→IT':e.type==='itde'?'IT→DE':e.type==='dialog'?'Dialogo':'Frase';const metadata=JSON.stringify({timestamp:e.date,modifiedAt:e.modifiedAt||e.date,prompt:e.prompt,expected:e.expected,manual:!!e.manual,ungraded:!!e.ungraded,percent:e.percent??null,matched:e.matched??null,referenceWords:e.referenceWords??null,enteredWords:e.enteredWords??null,lexicalPercent:e.lexicalPercent??null,grammarPercent:e.grammarPercent??null,diagnostics:Array.isArray(e.diagnostics)?e.diagnostics:[],assessment:e.assessment||''});return [e.session,toDate(e.date),e.id,kind,'DT|'+e.type+'|'+e.level,String(e.answer||''),e.score===null?'':e.score,'App / '+(e.ungraded?'non valutato':'automatico'),'', '',e.uid,device,metadata]});await api('/values/'+encodeURIComponent("'Verifiche'!A:M")+':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',{method:'POST',body:JSON.stringify({values:rows})});uploaded+=items.length}
 let deviceEvents=0;const known=new Set(state.events.map(e=>e.uid));for(const [uid,entry] of remote){if(known.has(uid))continue;const e=eventFromRow(entry.row);state.events.push(e);reviewAfter(e);known.add(uid);deviceEvents++}
 if(deviceEvents||remoteChanged){state.events.sort((a,b)=>(Date.parse(a.date)||0)-(Date.parse(b.date)||0));window.DTApp?.rebuildKnowledge?.();localStorage.setItem(KEY,JSON.stringify(state))}
-stats.uploaded+=uploaded;stats.downloaded+=deviceEvents+remoteChanged;stats.updated+=Math.floor(updates.length/2);lastSync=new Date().toLocaleString('it-IT');setMessage('Sincronizzato: '+uploaded+' nuove risposte inviate, '+deviceEvents+' scaricate, '+Math.floor(updates.length/2)+' correzioni aggiornate. Ultimo controllo: '+lastSync);if(['settings','history','home'].includes(view))render();
+window.DTApp?.rebuildKnowledge?.();const knowledgeUpdated=await syncKnowledgeToSheet();
+stats.uploaded+=uploaded;stats.downloaded+=deviceEvents+remoteChanged;stats.updated+=Math.floor(updates.length/2);lastSync=new Date().toLocaleString('it-IT');setMessage('Sincronizzato: '+uploaded+' nuove risposte inviate, '+deviceEvents+' scaricate, '+Math.floor(updates.length/2)+' correzioni aggiornate, '+knowledgeUpdated+' stati del vocabolario sincronizzati. Ultimo controllo: '+lastSync);if(['settings','history','home'].includes(view))render();
 }catch(e){needsSync=true;setMessage(e.message,true);throw e}finally{syncing=false}}
 async function resetShared(){
 if(syncing){setMessage('Sincronizzazione in corso: riprova fra poco.',true);return;}
