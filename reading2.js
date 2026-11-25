@@ -18,8 +18,9 @@ function segmentStory(story,dir){
 /* Context-aware lexical comparator: replaces only manually approved equivalences.
    This is NOT a semantic/grammatical correction engine. */
 function normalizedText(s,lang){
- let t=String(s||'').toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
- if(lang==='de')t=t.replace(/ß/g,'ss').replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue');
+ let t=String(s||'').toLocaleLowerCase();
+ if(lang==='de')t=t.replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');
+ t=t.normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
  return (t.match(/[\p{L}\p{N}]+/gu)||[]);
 }
 const commonEquivalents={
@@ -62,6 +63,51 @@ function scoreWords(user,reference,language='it',equivalents=[]){
  const percent=maxWords?Math.round(100*matched/maxWords):0;
  return {percent,matched,expected:ref.words.length,entered:u.words.length,missing:missing.slice(0,40),surplus:surplus.slice(0,40),adapted:u.changed+ref.changed>0,method:'lexical_equivalents_v2'};
 }
+
+/* Linguistic checks are deliberately conservative, not an unrestricted German grammar checker.
+   Only patterns that can be justified by the source and the reference are reported as errors.
+   Local edits are not sent to a third-party AI service. */
+const DIGNOSTIC_RULES={
+ 'R3-A1-001':[
+  {id:'floor',kind:'grammatica',level:'errore',pattern:/\bauf\s+dem\s+zweite(?:n)?\s+stock\b/i,fix:'im zweiten Stock',why:'Per il piano dell’edificio si usa im (= in dem); dopo dem l’aggettivo ordinale prende -en.'},
+  {id:'stop',kind:'genere e ortografia',level:'errore',pattern:/\bder\s+haltstalle\b/i,fix:'die Haltestelle',why:'Haltestelle è femminile; la grafia contiene -e- e termina in -stelle.'},
+  {id:'bring',kind:'verbo separabile',level:'errore',pattern:/\bbring\b[^.!?\n]{0,65}?\bkein(?:e|en)?\s+essen\b(?![^.!?\n]{0,16}\bmit\b)/i,fix:'Bring bitte kein Essen mit.',why:'Il verbo mitbringen è separabile: nell’imperativo la particella mit resta alla fine.'},
+  {id:'imperative',kind:'imperativo e pronomi',level:'errore',pattern:/\b(?:sagt|sage)\s+mir\b/i,fix:'sag es mir bitte',why:'Con du si usa sag; es riprende il contenuto da comunicare.'},
+  {id:'balcony',kind:'preposizione',level:'errore',pattern:/\b(?:im|in\s+dem)\s+balkon\b/i,fix:'auf dem Balkon',why:'Per esprimere che le sedie si trovano sul balcone si usa auf + dativo.'},
+  {id:'sleeps',kind:'coniugazione',level:'errore',pattern:/\ber\s+schlaft\b/i,fix:'Er schläft (Er schlaeft)',why:'Schlafen è irregolare: er schläft. La variante senza tastiera tedesca è schlaeft.'},
+  {id:'additional',kind:'scelta lessicale',level:'sfumatura',pattern:/\b(?:ich\s+habe|habe\s+ich)\s+noch\s+zwei\s+st(?:u|ue|ü)h?le\b/i,fix:'Ich habe auch zwei Stühle.',why:'Anche corrisponde ad auch; noch zwei indica invece altre due sedie.'},
+  {id:'shon',kind:'ortografia',level:'errore',pattern:/\bshoen\b/i,fix:'schön / schoen',why:'La forma con oe è corretta, ma manca la c di schön.'},
+  {id:'stuele',kind:'ortografia',level:'errore',pattern:/\bstuele\b/i,fix:'Stühle / Stuehle',why:'La forma con ue è corretta, ma deve contenere anche h.'},
+  {id:'evening',kind:'omissione',level:'errore',check:(t)=>/\bschreib\s+mir\b/i.test(t)&&!/\b(?:heute\s+abend|heuteabend|am\s+abend|heut\s+abend)\b/i.test(t),fix:'Schreib mir bitte heute Abend.',why:'Il testo specifica stasera: heute Abend è stato omesso.'}
+ ]
+};
+function linguisticDiagnostics(answer,reference,direction,storyId){
+ if(direction!=='itde')return [];
+ const messages=[],seen=new Set(),text=String(answer||'');
+ for(const rule of DIGNOSTIC_RULES[storyId]||[]){
+  if((rule.pattern?.test(text))||(rule.check?.(text))){
+   messages.push({id:rule.id,kind:rule.kind,level:rule.level,fix:rule.fix,why:rule.why});seen.add(rule.id);
+  }
+ }
+ // Nouns are capitalized in German. Check only clearly identifiable reference nouns
+ // in non-sentence-initial positions, to avoid classifying sentence starts as nouns.
+ const nouns=new Map(),raw=String(reference||'');
+ const matcher=/[\p{L}\p{N}]+/gu;let match;
+ while((match=matcher.exec(raw))!==null){
+  const value=match[0],before=raw.slice(0,match.index),segment=before.trimEnd();
+  if(!/^\p{Lu}/u.test(value)||!segment||/[.!?]\s*$/u.test(segment))continue;
+  const norm=normalizedText(value,'de')[0];
+  if(norm && !['ich','du','er','sie','es','wir','ihr','sie','das','der','die','ein','eine','am','im','in','mein','meine','dann','wenn','bitte','hallo','bis','heute','samstag'].includes(norm))nouns.set(norm,value);
+ }
+ const userTokens=[...text.matchAll(/[\p{L}\p{N}]+/gu)];
+ for(const [norm,model] of nouns){
+  if([...userTokens].some(t=>t[0]===model))continue;
+  const found=userTokens.find(t=>normalizedText(t[0],'de')[0]===norm&&t[0][0]===t[0][0].toLowerCase());
+  if(found)messages.push({id:'capital-'+norm,kind:'maiuscole',level:'errore',fix:model,why:'I sostantivi tedeschi richiedono l’iniziale maiuscola ('+found[0]+' → '+model+').'});
+ }
+ return messages;
+}
+
 const currentStory=()=>ALL.find(x=>x.id===cfg().active?.id);
 function selectOptions(stories,selected){return stories.map(x=>`<option value="${e(x.id)}" ${x.id===selected?'selected':''}>${e(x.title)} · ${e(x.genre||'Lettura')} (${x.pairs.map(p=>p[0]).join(' ').trim().split(/\s+/).length} parole DE)</option>`).join('')}
 function renderReading2(){
