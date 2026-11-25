@@ -38,7 +38,7 @@ function addKnowledgeEvent(map,event){
   next.nextAt=date+(next.stage==='known'?14:1)*DAY;
  }else if(wrong){
   next.misses=(next.misses||0)+1;next.streak=0;
-  if(next.stage==='known'&&next.misses>=2){next.stage='learning';next.manual=false}
+  if(next.stage==='known'&&next.misses>=2){next.stage='learning';next.manual=false;next.verifiedKnown=0;next.consolidatedAt=null;next.lastVerifiedAt=null}
   next.nextAt=date;
  }
  map[event.id]=next;return map;
