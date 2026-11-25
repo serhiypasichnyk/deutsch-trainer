@@ -25,8 +25,8 @@ function normalizedText(s,lang){
 const commonEquivalents={
  it:[
   ['che cosa','cosa'],['buongiorno','buon mattino'],['certamente','naturalmente','certo'],
-  ['buona giornata','una buona giornata'],['vuole','vorrebbe'],['sacchetto','busta'],
-  ['preparano','fanno'],['venire a trovare','venire a visitare'],
+  ['buona giornata','una buona giornata'],['sacchetto','busta'],
+  ['venire a trovare','venire a visitare'],
   ['sì','si']
  ],
  de:[['du','du']]
