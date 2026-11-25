@@ -63,18 +63,34 @@ function allowedWord(w){return !knowledgeGateEnabled()||knowledgeStage(w.id)!=='
 /* Structured BANK exercises have no word ID: match the meaningful German
    dictionary lemmas appearing in their prompts/answers, excluding grammatical
    function words. If there is no identified active lemma, defer the exercise. */
-function bankAllowed(b,all){
- if(!knowledgeGateEnabled())return true;
- const raw=[b.prompt,b.answer,b.passage].filter(x=>typeof x==='string').join(' '),tokens=new Set((raw.match(/[\p{L}äöüÄÖÜß]{4,}/gu)||[]).map(t=>normal(t,'de')));
- const functionWords=new Set(['dass','dann','auch','nicht','eine','einen','einem','einer','dies','dieser','diese','diesen','diesem','mein','dein','sein','ihre','heute','morgen','bitte','hier','dort','welche','haben','werden','sein','sind','wird','habe','hast','bist','kann','kannst','muss','moechte','aber','oder','weil','wenn','doch','sich','euch','unser','euer','ihnen','sein']);
- let found=0,unseen=0;
+function bankVocabularyIndex(all){
+ const map=new Map();
  for(const w of all){
-  const target=normal(w.de,'de').replace(/^(?:der|die|das) /,'').trim();
-  if(target.length<4||target.includes(' ')||functionWords.has(target)||!tokens.has(target))continue;
-  found++;
-  if(knowledgeStage(w.id)==='unknown')unseen++;
+  const term=normal(w.de,'de').replace(/^(?:der|die|das) /,'').trim();
+  if(term.length<4||term.includes(' '))continue;
+  const allowed=knowledgeStage(w.id)!=='unknown';
+  if(allowed||!map.has(term))map.set(term,allowed);
+  if(partOfSpeech(w)==='verbo'&&/(?:en|n)$/.test(term)){
+   const root=term.replace(/(?:en|n)$/,'');
+   for(const ending of ['e','st','t','en','et','est']){
+    const form=root+ending;
+    if(allowed||!map.has(form))map.set(form,allowed);
+   }
+  }
  }
- return found>0&&unseen===0;
+ return map;
+}
+function bankAllowed(b,index){
+ if(!knowledgeGateEnabled())return true;
+ const raw=b.kind==='order'||b.kind==='free'||b.kind==='dialog'?b.answer:[b.prompt,b.answer,b.passage].filter(x=>typeof x==='string').join(' ');
+ const terms=new Set((String(raw||'').match(/[\p{L}äöüÄÖÜß]{4,}/gu)||[]).map(t=>normal(t,'de')));
+ let matched=0;
+ for(const term of terms){
+  const status=index.get(term);
+  if(status===false)return false;
+  if(status===true)matched++;
+ }
+ return matched>0;
 }
 function relevantWordRate(q){
  if(!q.word||!knowledgeGateEnabled())return 1;
@@ -397,7 +413,7 @@ function editdist(a,b){let d=Array.from({length:b.length+1},(_,i)=>i);for(let i=
 function grade(q,raw){if(q.kind==='choice'||q.kind==='reading')return raw===q.answer?2:0;let lang=q.language||'de';let a=normal(raw,lang),answers=variants(q.answer,lang);if(a===normal(q.answer,lang)&&a)return 2;if(q.type==='plural'){a=a.replace(/^die /,'');answers=answers.map(x=>x.replace(/^die /,''));}if(q.type==='deit'){const provided=variants(raw,'it');const nmap={'1':'uno','2':'due','3':'tre','4':'quattro','5':'cinque','6':'sei','7':'sette','8':'otto','9':'nove','10':'dieci','11':'undici','12':'dodici','13':'tredici','14':'quattordici','15':'quindici','16':'sedici','17':'diciassette','18':'diciotto','19':'diciannove','20':'venti','21':'ventuno','30':'trenta','40':'quaranta','50':'cinquanta','60':'sessanta','70':'settanta','80':'ottanta','90':'novanta','100':'cento','101':'centouno','200':'duecento','1000':'mille','2001':'duemilauno'};for(const v of answers.slice()){if(nmap[v])answers.push(nmap[v]);let k=Object.keys(nmap).find(k=>nmap[k]===v);if(k)answers.push(k);}if(provided.length&&provided.every(v=>answers.includes(v)))return 2;if(provided.some(v=>answers.includes(v)))return 1;}if(answers.includes(a))return 2;if(q.type==='itde'&&Array.isArray(q.acceptedAnswers)&&q.acceptedAnswers.some(value=>normal(value,'de')===a))return 2;
  if(q.type==='itde'&&/^(?:sich)\s+/i.test(normal(q.answer,'de'))&&a===normal(q.answer,'de').replace(/^sich\s+/,'')&&a)return 1;
  if(q.type==='itde'&&Array.isArray(q.acceptedAnswers)&&q.acceptedAnswers.some(value=>{let n=normal(value,'de');return /^(der|die|das) /.test(n)&&n.replace(/^(der|die|das) /,'')===a;}))return 1;if(q.type==='itde'&&Array.isArray(q.uncertainAnswers)&&q.uncertainAnswers.some(value=>{const n=normal(value,'de');return n===a||(/^(der|die|das) /.test(n)&&n.replace(/^(der|die|das) /,'')===a)}))return null;if(q.type==='itde'||q.type==='listen'){if(/^(der|die|das) /.test(normal(q.answer))&&a.replace(/^(der|die|das) /,'')===normal(q.answer).replace(/^(der|die|das) /,''))return 1;}if(a.length>=4&&answers.some(b=>b.length>=4&&editdist(a,b)===1))return 1;return 0;}
-function createPool(){const all=getWords(),w=currentWords().filter(allowedWord),types=state.prefs.types;let c=[];for(const word of w)for(const t of types)if(applicable(word,t)){let q=makeWordQ(word,t,all);if(q)c.push(q)}let selectedLevels=state.prefs.scope==='through'?LEVELS.slice(0,LEVELS.indexOf(state.prefs.level)+1):[state.prefs.level];for(const b of BANK){let type=b.kind==='reading'?'reading':b.kind==='order'?'order':b.kind==='free'?'free':b.kind==='dialog'?'dialog':'grammar';if(types.includes(type)&&selectedLevels.includes(b.level)&&bankAllowed(b,all))c.push({...b,refId:b.id,type,language:'de',options:shuffle(b.options),hint:b.kind==='typed'?'Scrivi la forma richiesta.':'',word:null})}return c;}
+function createPool(){const all=getWords(),w=currentWords().filter(allowedWord),types=state.prefs.types,bankIndex=knowledgeGateEnabled()?bankVocabularyIndex(all):null;let c=[];for(const word of w)for(const t of types)if(applicable(word,t)){let q=makeWordQ(word,t,all);if(q)c.push(q)}let selectedLevels=state.prefs.scope==='through'?LEVELS.slice(0,LEVELS.indexOf(state.prefs.level)+1):[state.prefs.level];for(const b of BANK){let type=b.kind==='reading'?'reading':b.kind==='order'?'order':b.kind==='free'?'free':b.kind==='dialog'?'dialog':'grammar';if(types.includes(type)&&selectedLevels.includes(b.level)&&bankAllowed(b,bankIndex))c.push({...b,refId:b.id,type,language:'de',options:shuffle(b.options),hint:b.kind==='typed'?'Scrivi la forma richiesta.':'',word:null})}return c;}
 function chooseQueue(pool,count,mode){let samples=weightedDraw(pool).map(q=>({...q,r:getReview(q)})),newItems=[],due=[],later=[];for(const q of samples){let r=q.r;if(!r.seen)newItems.push(q);else if((r.due||0)<=now())due.push(q);else later.push(q)}due.sort((a,b)=>(a.r.score??0)-(b.r.score??0)||(a.r.due||0)-(b.r.due||0));const wordSeen=new Set(state.events.filter(e=>e.score!==null).map(e=>e.id));let sets=mode==='new'?[newItems]:mode==='newWord'?[newItems.filter(q=>!q.word||(!q.word.user&&!wordSeen.has(q.refId)))]:mode==='review'?[due]:mode==='errors'?[samples.filter(q=>q.r.seen&&q.r.score<2)]:[due,newItems,later];let used=new Set,chosen=[];function take(arr,limit){let selected=0;while(arr.length&&selected<limit&&chosen.length<count){let q=arr.shift();const group=q.word?normal(q.word.de):q.refId;if(used.has(group))continue;chosen.push(q);used.add(group);selected++;}}if(mode==='mix'){take(newItems,Math.ceil(count*.45));take(due,count-chosen.length);take(newItems,count-chosen.length);take(later,count-chosen.length);}else take(sets[0],count);return shuffle(chosen);}
 function begin(){let pool=createPool(),wanted=Number(state.prefs.count),extra=state.prefs.types.includes('choice')?Math.min(120,wanted*4):0,queue=chooseQueue(pool,wanted+extra,state.prefs.mode);if(queue.some(q=>q.lazyChoice||q.lazyReverse)){const all=getWords();queue=queue.map(q=>{if(q.lazyReverse)q={...q,uncertainAnswers:wordMeaningAlternatives(q.word,all),lazyReverse:false};if(!q.lazyChoice)return q;const opts=semanticChoiceOptions(q.word,all);return opts.length===3?{...q,options:shuffle([q.answer,...opts]),lazyChoice:false}:null;}).filter(Boolean);}queue=queue.slice(0,wanted);if(!queue.length){toast('Nessun esercizio disponibile con questi filtri. Scegli Misto, un altro modulo o livello.');return;}session={id:'S-'+Date.now(),level:state.prefs.level,queue,results:[],start:Date.now(),done:false};qIndex=0;submitted=null;picked=[];pendingFree='';view='practice';render();window.scrollTo(0,0);}
 function record(score,raw,manual=false,ungraded=false){let q=session.queue[qIndex];let event={id:q.refId,type:q.type,level:q.level,prompt:q.prompt,answer:String(raw||''),expected:q.answer,score,manual,ungraded,date:new Date().toISOString(),session:session.id};event.uid='DT-'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));let idx=state.events.length;state.events.push(event);addKnowledgeEvent(state.knowledge,event);session.results.push({...event,eventIndex:idx});if(score!==null)updateReview(q,score);save();return event;}
