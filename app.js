@@ -114,7 +114,7 @@ function discoveryOptions(w,dir,all){
 }
 function prepareNewWord(){
  if(newWordCard?.id||newWordCard?.empty)return;
- const dir=state.prefs.discoveryDirection==='itde'?'itde':'deit',level=discoveryLevel(),all=getWords().filter(w=>w.level===level&&w.de&&w.ref);
+ const dir=state.prefs.discoveryDirection==='itde'?'itde':'deit',level=discoveryLevel(),all=getWords().filter(w=>w.de&&w.ref);
  const recent=newWordCard?.recent||[];
  for(let i=0;i<35;i++){
   const w=chooseDiscovery();if(!w)break;
