@@ -43,8 +43,8 @@ async function syncKnowledgeToSheet(){
   const info=state.knowledge?.[id];
   if(!info||!['learning','known'].includes(info.stage))continue;
   const verified=Math.max(0,Math.floor(Number(info.verifiedKnown)||0));
-  const confirmed=info.stage==='known'&&verified>=10;
-  const status=confirmed?'Conosciuta e consolidata':info.stage==='known'?'In verifica (non consolidata)':'In apprendimento';
+  const confirmed=info.stage==='known'&&verified>=10&&!!info.consolidatedAt&&Number(info.consolidatedAt)-Number(info.firstVerifiedAt)>=30*86400000;
+  const status=confirmed?'Conosciuta e consolidata':info.stage==='known'?'In verifica temporale (10 giorni / minimo 30 giorni)':'In apprendimento';
   const desired=[status,String(verified),formatDate(info.lastVerifiedAt),confirmed?formatDate(info.consolidatedAt):''];
   const current=existing[i]||[];
   if(desired.every((v,j)=>v===String(current[j]??'')))continue;
