@@ -120,7 +120,7 @@ function scoreTranslation(answer,reference,direction,story){
  const penalty=diagnostics.reduce((s,x)=>s+(weights[x.kind]||1.0),0);
  const grammarPercent=Math.max(0,Math.round(100-penalty));
  const percent=diagnostics.length?Math.round(lexical.percent*.7+grammarPercent*.3):lexical.percent;
- return {...lexical,percent,lexicalPercent:lexical.percent,grammarPercent,diagnostics,assessment:diagnostics.length?'indice guidato (lessico + controlli puntuali)':'solo lessicale, controlli puntuali senza segnalazioni',method:'guided_lexical_grammar_v3'};
+ return {...lexical,percent,lexicalPercent:lexical.percent,grammarPercent:diagnostics.length?grammarPercent:null,diagnostics,assessment:diagnostics.length?'indice guidato (lessico + controlli puntuali)':'solo lessicale: nessuna segnalazione dalle regole disponibili',method:'guided_lexical_grammar_v3'};
 }
 const currentStory=()=>ALL.find(x=>x.id===cfg().active?.id);
 function selectOptions(stories,selected){return stories.map(x=>`<option value="${e(x.id)}" ${x.id===selected?'selected':''}>${e(x.title)} · ${e(x.genre||'Lettura')} (${x.pairs.map(p=>p[0]).join(' ').trim().split(/\s+/).length} parole DE)</option>`).join('')}
