@@ -113,7 +113,7 @@ function wordMeaningAlternatives(w,all){
  const expected=variants(w.ref,'it');
  if(!expected.length||expected.some(x=>x.length<3))return [];
  const explicit=new Set([normal(w.de,'de'),...reverseGermanAlternatives(w,all).map(x=>normal(x,'de'))]);
- return all.filter(x=>x.id!==w.id&&x.ref&&partOfSpeech(x)===partOfSpeech(w)&&variants(x.ref,'it').some(a=>expected.includes(a))&&!explicit.has(normal(x.de,'de'))&&!/[/()]/.test(x.de)).slice(0,20).map(x=>x.de);
+ return all.filter(x=>x.id!==w.id&&x.ref&&variants(x.ref,'it').some(a=>expected.includes(a))&&!explicit.has(normal(x.de,'de'))&&!/[/()]/.test(x.de)).slice(0,20).map(x=>x.de);
 }
 /* A distractor should belong to a related field, but not share an accepted
    meaning with the right answer. Tags use word stems, not fragile exact labels. */
