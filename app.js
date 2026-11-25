@@ -203,8 +203,8 @@ function discoveryNext(){
 }
 function progressPanel(){
  const summary=knowledgeStats(),rows=summary.rows;
- let table='<div class="tablebox"><table><thead><tr><th>Livello</th><th>Conosciute</th><th>Consolidate (10 giorni distinti, 30+ gg)</th><th>In studio</th><th>Sconosciute</th><th>Corrette recenti</th></tr></thead><tbody>';
- for(const r of rows)table+='<tr><td>'+esc(r.level)+'</td><td>'+fmt(r.known)+' / '+fmt(r.total)+'</td><td>'+fmt(r.consolidated)+'</td><td>'+fmt(r.learning)+'</td><td>'+fmt(r.unknown)+'</td><td>'+(r.attempts?pct(Math.round(r.success*r.attempts),r.attempts)+'% ('+r.attempts+')':'—')+'</td></tr>';
+ let table='<div class="tablebox"><table><thead><tr><th>Livello</th><th>Conosciute</th><th>Consolidate (10 giorni distinti, 30+ gg)</th><th>In studio</th><th>Sconosciute</th></tr></thead><tbody>';
+ for(const r of rows)table+='<tr><td>'+esc(r.level)+'</td><td>'+fmt(r.known)+' / '+fmt(r.total)+'</td><td>'+fmt(r.consolidated)+'</td><td>'+fmt(r.learning)+'</td><td>'+fmt(r.unknown)+'</td></tr>';
  return '<section class="card"><h2>Conoscenza delle parole per livello</h2><p><strong>Livello stimato:</strong> '+esc(summary.attained)+'</p><p class="muted">Indicatore interno, non certificazione QCER: richiede copertura del vocabolario, almeno 20 prove recenti e il 75% di risposte corrette.</p>'+table+'</tbody></table></div><div class="divider"></div><button class="secondary" data-action="newwords">Apri Nuove parole</button></section>';
 }
 function newWords(){
