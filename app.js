@@ -35,6 +35,7 @@ const VOCAB_CONFUSABLE_GROUPS=[
  ['mögen','lieben','gefallen','wollen','möchten','brauchen','müssen','dürfen','können','sollen'],
  ['schön','hübsch','hässlich','groß','klein','alt','neu','jung'],
  ['schnell','rasch','langsam','früh','spät','sofort','gleich'],
+ ['ganz','alles','all','alle','jeder','jede','sämtlich','sämtliche','halb','die Hälfte','vollständig','komplett','teilweise'],
  ['gut','schlecht','besser','richtig','falsch','leicht','schwer'],
  ['der Herd','die Küche','der Backofen','der Ofen','der Topf','die Pfanne','die Mikrowelle','das Kochfeld'],
  ['der Schüler','der Student','die Schülerin','die Studentin','der Lehrer','die Lehrerin','der Professor','die Schule','die Universität'],
@@ -117,6 +118,7 @@ const VOCAB_SEMANTIC_FIELDS={
  comunicazione:['parlare','dire','raccontare','chiedere','rispondere','scrivere','leggere','lettera','messaggio','telefonare','chiamare','conversazion','domanda','risposta','ascoltare'],
  movimento:['andare','venire','correre','camminare','saltare','arrivare','partire','uscire','entrare','salire','scendere','muovere','spostare','fermare'],
  colori:['colore','rosso','verde','giallo','blu','azzurr','nero','bianco','grigio','marron','viola','rosa','arancion'],
+ quantita:['tutto','ogni','intero','completo','completamente','niente','nessuno','metà','mezzo','parte','parziale','tanto','quanto','molto','poco','alcuni','ciascuno','totalmente','metà'],
  dimensioni:['grande','piccolo','lungo','corto','alto','basso','largo','stretto','pesante','leggero','veloce','lento']
 };
 function meaningTopics(w){
@@ -135,7 +137,7 @@ function choiceIndex(all){
  cached={byCat,byTopic,topics};choiceCache.set(all,cached);return cached;
 }
 function semanticChoiceOptions(w,all){
- const a=w.ref,options=[],catalog=choiceIndex(all),cat=partOfSpeech(w),topics=catalog.topics.get(w.id)||[];
+ const a=w.ref,sense=REVERSE_CONTEXT[w.de]?.[0]||a,options=[],catalog=choiceIndex(all),cat=partOfSpeech(w),topics=catalog.topics.get(w.id)||[];
  const verified=new Set(reverseGermanAlternatives(w,all).map(x=>normal(x,'de')));
  const sameCat=catalog.byCat.get(cat)||[],nearby=new Map();
  for(const tag of topics)for(const item of catalog.byTopic.get(tag)||[]){
@@ -150,12 +152,14 @@ function semanticChoiceOptions(w,all){
  for(const v of nearby.values()){
   if(v.id===w.id||!v.ref||v.ref===a||String(v.ref).length>95||partOfSpeech(v)!==cat)continue;
   if(cat!=='numero'&&/\d/.test(v.ref))continue;
-  if(sameMeaning(v.ref,a)||verified.has(normal(v.de,'de')))continue;
+  if(sameMeaning(v.ref,a)||sameMeaning(v.ref,sense)||verified.has(normal(v.de,'de')))continue;
   const vt=catalog.topics.get(v.id)||[],shared=vt.filter(t=>topics.includes(t)).length;
   const vk=normal(v.de,'de').replace(/^(?:der|die|das)\s+/,'');
   const lexical=variants(v.ref,'it').join(' '),target=variants(a,'it').join(' ');
-  const closeness=Math.max(0,8-Math.abs(vk.length-key.length)-Math.min(6,editdist(key,vk)));
+  const distance=editdist(key,vk);
+  const closeness=Math.max(0,8-Math.abs(vk.length-key.length)-Math.min(6,distance));
   const nearMeaning=close.has(v.id);
+  if(!nearMeaning && !shared && distance>2)continue; // Skip unrelated distractors entirely.
   const score=(nearMeaning?30:0)+shared*12+(v.level===w.level?2:0)+closeness*.5+Math.max(0,5-Math.abs(lexical.length-target.length)/4)*.25+Math.random()*2;
   ranked.push({v,score});
  }
@@ -207,7 +211,7 @@ function editdist(a,b){let d=Array.from({length:b.length+1},(_,i)=>i);for(let i=
 function grade(q,raw){if(q.kind==='choice'||q.kind==='reading')return raw===q.answer?2:0;let lang=q.language||'de';let a=normal(raw,lang),answers=variants(q.answer,lang);if(a===normal(q.answer,lang)&&a)return 2;if(q.type==='plural'){a=a.replace(/^die /,'');answers=answers.map(x=>x.replace(/^die /,''));}if(q.type==='deit'){const provided=variants(raw,'it');const nmap={'1':'uno','2':'due','3':'tre','4':'quattro','5':'cinque','6':'sei','7':'sette','8':'otto','9':'nove','10':'dieci','11':'undici','12':'dodici','13':'tredici','14':'quattordici','15':'quindici','16':'sedici','17':'diciassette','18':'diciotto','19':'diciannove','20':'venti','21':'ventuno','30':'trenta','40':'quaranta','50':'cinquanta','60':'sessanta','70':'settanta','80':'ottanta','90':'novanta','100':'cento','101':'centouno','200':'duecento','1000':'mille','2001':'duemilauno'};for(const v of answers.slice()){if(nmap[v])answers.push(nmap[v]);let k=Object.keys(nmap).find(k=>nmap[k]===v);if(k)answers.push(k);}if(provided.length&&provided.every(v=>answers.includes(v)))return 2;if(provided.some(v=>answers.includes(v)))return 1;}if(answers.includes(a))return 2;if(q.type==='itde'&&Array.isArray(q.acceptedAnswers)&&q.acceptedAnswers.some(value=>normal(value,'de')===a))return 2;if(q.type==='itde'&&Array.isArray(q.uncertainAnswers)&&q.uncertainAnswers.some(value=>normal(value,'de')===a))return null;if(q.type==='itde'||q.type==='listen'){if(/^(der|die|das) /.test(normal(q.answer))&&a.replace(/^(der|die|das) /,'')===normal(q.answer).replace(/^(der|die|das) /,''))return 1;}if(a.length>=4&&answers.some(b=>b.length>=4&&editdist(a,b)===1))return 1;return 0;}
 function createPool(){const w=currentWords(),all=getWords(),types=state.prefs.types;let c=[];for(const word of w)for(const t of types)if(applicable(word,t)){let q=makeWordQ(word,t,all);if(q)c.push(q)}let selectedLevels=state.prefs.scope==='through'?LEVELS.slice(0,LEVELS.indexOf(state.prefs.level)+1):[state.prefs.level];for(const b of BANK){let type=b.kind==='reading'?'reading':b.kind==='order'?'order':b.kind==='free'?'free':b.kind==='dialog'?'dialog':'grammar';if(types.includes(type)&&selectedLevels.includes(b.level))c.push({...b,refId:b.id,type,language:'de',options:shuffle(b.options),hint:b.kind==='typed'?'Scrivi la forma richiesta.':'',word:null})}return c;}
 function chooseQueue(pool,count,mode){let samples=shuffle(pool).map(q=>({...q,r:getReview(q)})),newItems=[],due=[],later=[];for(const q of samples){let r=q.r;if(!r.seen)newItems.push(q);else if((r.due||0)<=now())due.push(q);else later.push(q)}due.sort((a,b)=>(a.r.score??0)-(b.r.score??0)||(a.r.due||0)-(b.r.due||0));const wordSeen=new Set(state.events.filter(e=>e.score!==null).map(e=>e.id));let sets=mode==='new'?[newItems]:mode==='newWord'?[newItems.filter(q=>!q.word||(!q.word.user&&!wordSeen.has(q.refId)))]:mode==='review'?[due]:mode==='errors'?[samples.filter(q=>q.r.seen&&q.r.score<2)]:[due,newItems,later];let used=new Set,chosen=[];function take(arr,limit){let selected=0;while(arr.length&&selected<limit&&chosen.length<count){let q=arr.shift();const group=q.word?normal(q.word.de):q.refId;if(used.has(group))continue;chosen.push(q);used.add(group);selected++;}}if(mode==='mix'){take(newItems,Math.ceil(count*.45));take(due,count-chosen.length);take(newItems,count-chosen.length);take(later,count-chosen.length);}else take(sets[0],count);return shuffle(chosen);}
-function begin(){let pool=createPool(),queue=chooseQueue(pool,Number(state.prefs.count),state.prefs.mode);if(queue.some(q=>q.lazyChoice||q.lazyReverse)){const all=getWords();queue=queue.map(q=>{if(q.lazyReverse)q={...q,uncertainAnswers:wordMeaningAlternatives(q.word,all),lazyReverse:false};if(!q.lazyChoice)return q;const opts=semanticChoiceOptions(q.word,all);return opts.length===3?{...q,options:shuffle([q.answer,...opts]),lazyChoice:false}:null;}).filter(Boolean);}if(!queue.length){toast('Nessun esercizio disponibile con questi filtri. Scegli Misto, un altro modulo o livello.');return;}session={id:'S-'+Date.now(),level:state.prefs.level,queue,results:[],start:Date.now(),done:false};qIndex=0;submitted=null;picked=[];pendingFree='';view='practice';render();window.scrollTo(0,0);}
+function begin(){let pool=createPool(),queue=chooseQueue(pool,Number(state.prefs.count),state.prefs.mode);if(queue.some(q=>q.lazyChoice||q.lazyReverse)){const all=getWords();queue=queue.map(q=>{if(q.lazyReverse)q={...q,uncertainAnswers:wordMeaningAlternatives(q.word,all),lazyReverse:false};if(!q.lazyChoice)return q;const opts=semanticChoiceOptions(q.word,all);return opts.length>=2?{...q,options:shuffle([q.answer,...opts]),lazyChoice:false}:null;}).filter(Boolean);}if(!queue.length){toast('Nessun esercizio disponibile con questi filtri. Scegli Misto, un altro modulo o livello.');return;}session={id:'S-'+Date.now(),level:state.prefs.level,queue,results:[],start:Date.now(),done:false};qIndex=0;submitted=null;picked=[];pendingFree='';view='practice';render();window.scrollTo(0,0);}
 function record(score,raw,manual=false,ungraded=false){let q=session.queue[qIndex];let event={id:q.refId,type:q.type,level:q.level,prompt:q.prompt,answer:String(raw||''),expected:q.answer,score,manual,ungraded,date:new Date().toISOString(),session:session.id};event.uid='DT-'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));let idx=state.events.length;state.events.push(event);session.results.push({...event,eventIndex:idx});if(score!==null)updateReview(q,score);save();return event;}
 function updateReview(q,score,previous=null){let key=q.refId+'|'+q.type,r=previous||state.reviews[key]||{seen:false,attempts:0,correct:0,streak:0};let streak=score===2?(r.streak||0)+1:0;let interval=score===2?[1,3,7,14,30,60][Math.min(streak-1,5)]:score===1?0.25:0;state.reviews[key]={seen:true,score,streak,attempts:(r.attempts||0)+1,correct:(r.correct||0)+(score===2?1:0),last:now(),due:now()+interval*DAY};}
 function submit(raw){if(submitted||typeof raw!=='string'||!raw.trim())return;let q=session.queue[qIndex];const isOpen=q.kind==='free'||q.kind==='dialog';const score=isOpen?(normal(raw,'de')===normal(q.answer,'de')?2:null):grade(q,raw);const ungraded=score===null;record(score,raw,false,ungraded);submitted={score,raw,ungraded};render();}
