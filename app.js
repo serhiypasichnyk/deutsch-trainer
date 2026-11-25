@@ -16,7 +16,7 @@ function applicable(w,type){if(!w.de)return false;if(type==='article')return /^(
 const VOCAB_EQUIVALENCE_GROUPS=[
  ['anfangen','beginnen'],['aufmachen','öffnen'],['schließen','zumachen'],
  ['bekommen','kriegen','erhalten'],['bezahlen','zahlen'],['reden','sprechen'],
- ['machen','tun'],['die Arbeit','der Job'],['der Frühling','das Frühjahr'],
+ ['machen','tun'],['der Frühling','das Frühjahr'],
  ['das Brötchen','die Semmel','das Brötli'],['die Karotte','die Möhre','das Rüebli'],
  ['die Disco','die Disko','die Diskothek'],['das Couvert','das Kuvert','der Briefumschlag'],
  ['schnell','rasch'],['schön','hübsch'],['danken','sich bedanken']
@@ -25,6 +25,8 @@ const VOCAB_EQUIVALENCE_GROUPS=[
 const VOCAB_CONFUSABLE_GROUPS=[
  ['anfangen','beginnen','starten','aufhören','beenden','fortsetzen','weitermachen'],
  ['reden','sprechen','sagen','erzählen','fragen','antworten','zuhören','hören'],
+ ['bekommen','kriegen','erhalten','empfangen','geben','nehmen','holen','schicken','senden','bringen'],
+ ['sich','mich','dich','uns','euch','ihn','ihm','sie','ihr','mir','dir'],
  ['kaufen','einkaufen','verkaufen','bezahlen','zahlen','bestellen','nehmen','holen','bringen'],
  ['kommen','gehen','fahren','laufen','rennen','reisen','ankommen','abfahren'],
  ['wohnen','leben','bleiben','besuchen','umziehen','mieten','vermieten'],
@@ -66,7 +68,8 @@ const REVERSE_CONTEXT={
  'die Leiter':['scala a pioli / persona dirigente (secondo genere e contesto)','Die Leiter può riferirsi alla scala; una persona dirigente è der Leiter / die Leiterin.'],
  'der Leiter':['responsabile, dirigente','Der Leiter indica una persona che dirige; die Leiter può indicare anche una scala.'],
  'das Werk':['opera, lavoro realizzato','Werk non coincide sempre con Arbeit o Job.'],
- 'die Arbeit':['lavoro, attività lavorativa','Arbeit può indicare lavoro, attività o compito, non necessariamente un posto di lavoro.']
+ 'die Arbeit':['lavoro, attività lavorativa','Arbeit può indicare lavoro, attività o compito, non necessariamente un posto di lavoro.'],
+ 'der Job':['impiego, posto di lavoro','Job indica un impiego specifico; Arbeit può indicare anche lavoro e attività in senso generale.']
 };
 function partOfSpeech(w){
  const c=String(w.cat||'').toLowerCase();
@@ -165,7 +168,41 @@ function relevantWordNote(q,submitted){if(!q.word||!submitted||submitted.score==
 function makeWordQ(w,type,all){let base={refId:w.id,id:w.id+'|'+type,word:w,level:w.level,type,topic:label(type),prompt:'',answer:'',options:[],explanation:'',kind:'typed'};if(type==='deit'){return {...base,prompt:w.de,answer:w.ref,language:'it',hint:'Scrivi il significato in italiano.'};}if(type==='itde'){const alternatives=reverseGermanAlternatives(w),context=REVERSE_CONTEXT[w.de];return {...base,prompt:context?context[0]:w.ref,answer:w.de,acceptedAnswers:alternatives,uncertainAnswers:[],lazyReverse:!context,reverseAmbiguity:w.de==='ganz'?'«ganz» = intero, completo o del tutto; «alles» = tutto nel senso di ogni cosa. Senza contesto, per «tutto» sono possibili entrambe le traduzioni.':context?context[1]:alternatives.length?'Sono accettate anche traduzioni equivalenti verificate: la loro sostituibilità può dipendere dal contesto.':'',language:'de',hint:w.cat==='sostantivo'?'Scrivi in tedesco, includendo l’articolo del sostantivo.':'Scrivi la traduzione in tedesco.'};}if(type==='choice'){return {...base,prompt:w.de,answer:w.ref,options:[],kind:'choice',hint:'Scegli il significato.',lazyChoice:true};}if(type==='article'){let [a,...r]=w.de.split(' ');return {...base,prompt:r.join(' '),answer:a,options:shuffle(['der','die','das']),kind:'choice',hint:'Scegli l’articolo determinativo al singolare.',explanation:w.de+(w.ref?' = '+w.ref:' · articolo determinativo')};}if(type==='plural')return {...base,prompt:w.de,answer:w.forms,language:'de',hint:'Scrivi il plurale, con o senza die.',explanation:'Plurale: die '+w.forms};if(type==='listen')return {...base,prompt:'Ascolta e trascrivi',answer:w.de,language:'de',audio:w.de,hint:'Premi Ascolta. Trascrivi anche l’articolo, se presente.',explanation:w.ref};return null;}
 function normal(s,lang='de'){let t=String(s||'').normalize('NFC').toLowerCase().trim().replace(/[’‘`]/g,"'").replace(/[.,!?;:…“”„"()]/g,' ').replace(/\s+/g,' ').trim();if(lang==='de')t=t.replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');else t=t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/^(?:(?:il|lo|la|i|gli|le|un|uno|una)\s+|l')/,'');return t;}
 function variants(a,lang){return unique(String(a||'').split(lang==='it'?/[;,/]|(?:\s+oppure\s+)/:/[;/]|(?:\s+oppure\s+)/).flatMap(s=>[s,s.replace(/\([^)]*\)/g,'')]).map(x=>normal(x,lang)).filter(Boolean));}
-function sameMeaning(a,b){let aa=variants(a,'it'),bb=variants(b,'it');return aa.some(x=>bb.includes(x));}
+/* Avoid wrong-answer choices that are legitimate Italian paraphrases of the answer.
+   This rule is applied to the distractors only; it does not automatically give
+   credit to a different German lemma in an IT→DE test. */
+const ITALIAN_GLOSS_EQUIVALENCE=[
+ ['iniziare','cominciare'],['finire','terminare','concludere'],
+ ['comprare','acquistare'],['vendere','cedere'],
+ ['veloce','rapido'],['lentamente','piano'],['presto','rapidamente'],
+ ['bello','carino','grazioso'],['brutto','orribile'],
+ ['grande','ampio'],['piccolo','minuscolo'],
+ ['difficile','complicato'],['facile','semplice'],
+ ['ricevere','ottenere'],['pagare','versare'],
+ ['parlare','conversare'],['domandare','chiedere'],['rispondere','replicare'],
+ ['arrivare','giungere'],['partire','andarsene'],
+ ['prendere','afferrare'],['dare','consegnare'],
+ ['abitare','risiedere'],['casa','abitazione'],
+ ['lavoro','impiego'],['professione','mestiere'],
+ ['bambino','bimbo'],['ragazzo','giovane'],
+ ['felice','contento'],['triste','infelice'],
+ ['paura','timore'],['coraggioso','audace'],
+ ['negozio','bottega'],['auto','automobile','macchina'],
+ ['autobus','bus'],['treno','convoglio'],['bicicletta','bici'],
+ ['fornello','piano cottura'],['verdura','ortaggio'],['frutta','frutti'],
+ ['soldi','denaro'],['prezzo','costo'],['sconto','riduzione'],
+ ['giacca','giubbotto'],['maglietta','t-shirt'],
+ ['schermo','display'],['telefono','cellulare']
+];
+function sameMeaning(a,b){
+ const aa=variants(a,'it'),bb=variants(b,'it');
+ if(aa.some(x=>bb.includes(x)))return true;
+ for(const group of ITALIAN_GLOSS_EQUIVALENCE){
+  const normalized=group.map(x=>normal(x,'it'));
+  if(aa.some(x=>normalized.includes(x))&&bb.some(x=>normalized.includes(x)))return true;
+ }
+ return false;
+}
 function editdist(a,b){let d=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let last=d[0];d[0]=i;for(let j=1;j<=b.length;j++){let t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,last+(a[i-1]!==b[j-1]?1:0));last=t}}return d[b.length]}
 function grade(q,raw){if(q.kind==='choice'||q.kind==='reading')return raw===q.answer?2:0;let lang=q.language||'de';let a=normal(raw,lang),answers=variants(q.answer,lang);if(a===normal(q.answer,lang)&&a)return 2;if(q.type==='plural'){a=a.replace(/^die /,'');answers=answers.map(x=>x.replace(/^die /,''));}if(q.type==='deit'){const provided=variants(raw,'it');const nmap={'1':'uno','2':'due','3':'tre','4':'quattro','5':'cinque','6':'sei','7':'sette','8':'otto','9':'nove','10':'dieci','11':'undici','12':'dodici','13':'tredici','14':'quattordici','15':'quindici','16':'sedici','17':'diciassette','18':'diciotto','19':'diciannove','20':'venti','21':'ventuno','30':'trenta','40':'quaranta','50':'cinquanta','60':'sessanta','70':'settanta','80':'ottanta','90':'novanta','100':'cento','101':'centouno','200':'duecento','1000':'mille','2001':'duemilauno'};for(const v of answers.slice()){if(nmap[v])answers.push(nmap[v]);let k=Object.keys(nmap).find(k=>nmap[k]===v);if(k)answers.push(k);}if(provided.length&&provided.every(v=>answers.includes(v)))return 2;if(provided.some(v=>answers.includes(v)))return 1;}if(answers.includes(a))return 2;if(q.type==='itde'&&Array.isArray(q.acceptedAnswers)&&q.acceptedAnswers.some(value=>normal(value,'de')===a))return 2;if(q.type==='itde'&&Array.isArray(q.uncertainAnswers)&&q.uncertainAnswers.some(value=>normal(value,'de')===a))return null;if(q.type==='itde'||q.type==='listen'){if(/^(der|die|das) /.test(normal(q.answer))&&a.replace(/^(der|die|das) /,'')===normal(q.answer).replace(/^(der|die|das) /,''))return 1;}if(a.length>=4&&answers.some(b=>b.length>=4&&editdist(a,b)===1))return 1;return 0;}
 function createPool(){const w=currentWords(),all=getWords(),types=state.prefs.types;let c=[];for(const word of w)for(const t of types)if(applicable(word,t)){let q=makeWordQ(word,t,all);if(q)c.push(q)}let selectedLevels=state.prefs.scope==='through'?LEVELS.slice(0,LEVELS.indexOf(state.prefs.level)+1):[state.prefs.level];for(const b of BANK){let type=b.kind==='reading'?'reading':b.kind==='order'?'order':b.kind==='free'?'free':b.kind==='dialog'?'dialog':'grammar';if(types.includes(type)&&selectedLevels.includes(b.level))c.push({...b,refId:b.id,type,language:'de',options:shuffle(b.options),hint:b.kind==='typed'?'Scrivi la forma richiesta.':'',word:null})}return c;}
