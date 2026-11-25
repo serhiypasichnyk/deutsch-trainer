@@ -122,8 +122,8 @@ const VOCAB_SEMANTIC_FIELDS={
  dimensioni:['grande','piccolo','lungo','corto','alto','basso','largo','stretto','pesante','leggero','veloce','lento']
 };
 function meaningTopics(w){
- const text=normal(w.ref||'','it')+' '+normal(w.user||'','it');const fields=[];
- for(const [name,stems] of Object.entries(VOCAB_SEMANTIC_FIELDS))if(stems.some(stem=>text.includes(stem)))fields.push(name);
+ const tokens=(normal(w.ref||'','it').match(/[\p{L}\p{N}]+/gu)||[]),fields=[];
+ for(const [name,stems] of Object.entries(VOCAB_SEMANTIC_FIELDS))if(stems.some(s=>{const stem=s.trim();return tokens.some(token=>stem.length<=3?token===stem:token.startsWith(stem));}))fields.push(name);
  return fields;
 }
 const choiceCache=new WeakMap();
