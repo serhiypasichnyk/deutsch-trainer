@@ -14,7 +14,7 @@ function applicable(w,type){if(!w.de)return false;if(type==='article')return /^(
 /* Curated equivalents are accepted only for a meaning shared by the two entries in
    a context-free flashcard, not as a claim that they substitute in every sentence. */
 const VOCAB_EQUIVALENCE_GROUPS=[
- ['anfangen','beginnen'],['aufmachen','öffnen'],['schließen','zumachen'],
+ ['anfangen','beginnen','starten'],['aufmachen','öffnen'],['schließen','zumachen'],
  ['bekommen','kriegen','erhalten'],['bezahlen','zahlen'],['reden','sprechen'],
  ['machen','tun'],['der Frühling','das Frühjahr'],
  ['das Brötchen','die Semmel','das Brötli'],['die Karotte','die Möhre','das Rüebli'],
@@ -161,10 +161,11 @@ function semanticChoiceOptions(w,all){
   const nearMeaning=close.has(v.id);
   if(!nearMeaning && !shared && distance>2)continue; // Skip unrelated distractors entirely.
   const score=(nearMeaning?30:0)+shared*12+(v.level===w.level?2:0)+closeness*.5+Math.max(0,5-Math.abs(lexical.length-target.length)/4)*.25+Math.random()*2;
-  ranked.push({v,score});
+  ranked.push({v,score,related:nearMeaning||shared>0});
  }
  ranked.sort((a,b)=>b.score-a.score);
- for(const {v} of ranked){if(options.length>=3)break;if(!options.some(x=>sameMeaning(x,v.ref)))options.push(v.ref)}
+ for(const {v,related} of ranked){if(options.length>=3)break;if(related&&!options.some(x=>sameMeaning(x,v.ref)))options.push(v.ref)}
+ if(options.length<2){for(const {v} of ranked){if(options.length>=2)break;if(!options.some(x=>sameMeaning(x,v.ref)))options.push(v.ref)}}
  // If there are fewer than three credible distractors, do not pad with garbage.
  return options;
 }
