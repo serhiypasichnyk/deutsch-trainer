@@ -46,6 +46,7 @@ function addKnowledgeEvent(map,event){
  if(!['deit','itde','choice','article','plural','listen','grammar','order','reading','free','dialog'].includes(type))return map;
  const correct=event.score===2,wrong=event.score===0;
  const next={...current,updatedAt:date};
+ let countedReview=false;
  if(correct){
   if(current.stage==='known'){
    const last=Number(current.lastVerifiedAt)||0,first=Number(current.firstVerifiedAt)||0;
@@ -53,6 +54,7 @@ function addKnowledgeEvent(map,event){
    const enoughGap=!last||date-last>=CONSOLIDATION_MIN_GAP;
    // Ten responses on the same day count as one, even across exercise types.
    if(separateDay&&enoughGap){
+    countedReview=true;
     next.verifiedKnown=Math.min(CONSOLIDATION_REQUIRED,(next.verifiedKnown||0)+1);
     next.firstVerifiedAt=first||date;next.lastVerifiedAt=date;
     if(next.verifiedKnown>=CONSOLIDATION_REQUIRED&&date-next.firstVerifiedAt>=CONSOLIDATION_MIN_SPAN&&!next.consolidatedAt)next.consolidatedAt=date;
@@ -64,7 +66,7 @@ function addKnowledgeEvent(map,event){
   if(next.stage==='learning'&&next.streak>=3&&next.productions>=1){
    next.stage='known';next.verifiedKnown=0;next.firstVerifiedAt=null;next.lastVerifiedAt=null;next.consolidatedAt=null;
   }
-  next.nextAt=date+(next.stage==='known'?spacedReviewDays(next):1)*DAY;
+  next.nextAt=next.stage==='known'&&!countedReview&&current.stage==='known'?(current.nextAt||date+spacedReviewDays(next)*DAY):date+(next.stage==='known'?spacedReviewDays(next):1)*DAY;
  }else if(wrong){
   next.misses=(next.misses||0)+1;next.streak=0;
   if(next.stage==='known'&&next.misses>=2){
