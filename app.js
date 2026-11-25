@@ -11,7 +11,117 @@ function localScore(id,type){return state.reviews[id+'|'+type]||null}
 function seedReview(w,type){if(type==='deit'||type==='choice'){if(w.status==='Corretta'||w.status==='Consolidata')return {seen:true,score:2,due:w.due?Date.parse(w.due):now(),streak:0};if(w.status==='Errata'||w.status==='Parziale')return {seen:true,score:w.status==='Errata'?0:1,due:0,streak:0};}if(type==='itde'&&w.reverse>0)return {seen:true,score:2,due:0,streak:0};return {seen:false,score:null,due:0,streak:0};}
 function getReview(q){return localScore(q.refId,q.type)|| (q.word?seedReview(q.word,q.type):{seen:false,score:null,due:0,streak:0});}
 function applicable(w,type){if(!w.de)return false;if(type==='article')return /^(der|die|das) [A-ZÄÖÜ]/.test(w.de)&&!['die Möbel','die Eltern','die Geschwister','die Großeltern','die Ferien','die Leute','die Papiere','die Lebensmittel','die Kenntnisse','die Fundsachen','die Süßigkeiten'].includes(w.de);if(type==='plural')return !!w.forms;if(type==='listen')return speechAvailable()&&!/\/|\(|\)|-$/.test(w.de);if(!w.ref)return false;if(type==='itde')return !/\(possessivo\)|\/|\(sich\)|-$/.test(w.de);return ['deit','choice'].includes(type)}
-function reverseGermanAlternatives(w){return w.de==='ganz'&&normal(w.ref,'it')==='tutto'?['alles']:[]}
+/* Curated equivalents are accepted only for a meaning shared by the two entries in
+   a context-free flashcard, not as a claim that they substitute in every sentence. */
+const VOCAB_EQUIVALENCE_GROUPS=[
+ ['anfangen','beginnen'],['aufmachen','öffnen'],['schließen','zumachen'],
+ ['bekommen','kriegen','erhalten'],['bezahlen','zahlen'],['reden','sprechen'],
+ ['machen','tun'],['die Arbeit','der Job'],['der Frühling','das Frühjahr'],
+ ['das Brötchen','die Semmel','das Brötli'],['die Karotte','die Möhre','das Rüebli'],
+ ['die Disco','die Disko','die Diskothek'],['das Couvert','das Kuvert','der Briefumschlag'],
+ ['schnell','rasch'],['schön','hübsch'],['danken','sich bedanken']
+];
+/* Words with one Italian gloss and different meanings need context, not a global synonym rule. */
+const REVERSE_CONTEXT={
+ 'der Schüler':['studente (di scuola)','Schüler indica normalmente uno studente della scuola, non dell’università.'],
+ 'der Student':['studente (universitario)','Student indica normalmente uno studente universitario.'],
+ 'die Frage':['domanda (quesito)','Frage è una domanda rivolta a qualcuno.'],
+ 'der Antrag':['domanda (richiesta formale)','Antrag è una richiesta o domanda amministrativa.'],
+ 'die Leiter':['scala a pioli / persona dirigente (secondo genere e contesto)','Die Leiter può riferirsi alla scala; una persona dirigente è der Leiter / die Leiterin.'],
+ 'der Leiter':['responsabile, dirigente','Der Leiter indica una persona che dirige; die Leiter può indicare anche una scala.'],
+ 'das Werk':['opera, lavoro realizzato','Werk non coincide sempre con Arbeit o Job.'],
+ 'die Arbeit':['lavoro, attività lavorativa','Arbeit può indicare lavoro, attività o compito, non necessariamente un posto di lavoro.']
+};
+function partOfSpeech(w){
+ const c=String(w.cat||'').toLowerCase();
+ if(c==='da classificare'||c==='altro'){
+  if(/^(?:der|die|das)\s+\p{Lu}/u.test(w.de||''))return 'sostantivo';
+  if(/(?:are|ere|ire)(?:[;,\s]|$)/i.test(String(w.ref||'').split(/[;\/]/)[0]))return 'verbo';
+  return c;
+ }
+ return c;
+}
+function reverseGermanAlternatives(w,all){
+ const values=[];
+ if(w.de==='ganz'&&normal(w.ref,'it')==='tutto')values.push('alles');
+ const target=normal(w.de,'de');
+ for(const group of VOCAB_EQUIVALENCE_GROUPS){
+  if(!group.some(x=>normal(x,'de')===target))continue;
+  for(const candidate of group){
+   if(normal(candidate,'de')!==target&&(!all||all.some(x=>normal(x.de,'de')===normal(candidate,'de'))))values.push(candidate);
+  }
+ }
+ return unique(values);
+}
+function wordMeaningAlternatives(w,all){
+ const expected=variants(w.ref,'it');
+ if(!expected.length||expected.some(x=>x.length<3))return [];
+ const explicit=new Set([normal(w.de,'de'),...reverseGermanAlternatives(w,all).map(x=>normal(x,'de'))]);
+ return all.filter(x=>x.id!==w.id&&x.ref&&partOfSpeech(x)===partOfSpeech(w)&&variants(x.ref,'it').some(a=>expected.includes(a))&&!explicit.has(normal(x.de,'de'))&&!/[/()]/.test(x.de)).slice(0,20).map(x=>x.de);
+}
+/* A distractor should belong to a related field, but not share an accepted
+   meaning with the right answer. Tags use word stems, not fragile exact labels. */
+const VOCAB_SEMANTIC_FIELDS={
+ cucina:['fornell','cottura','cucin','pentol','padell','forno','frigorif','microond','coltell','cucchiai','piatt','forchett','tazza','bicchier','lavello','spugna','posat','bollitor'],
+ alimenti:['pane','panino','formagg','latte','mela','pera','banana','frutta','verdura','carne','pesce','riso','patat','zuccher','sale','pepe','cioccolat','gelato','acqua','bevanda','birra','vino','caffe','te '],
+ trasporti:['treno','autobus','bus','metr','tram','biciclett','aereo','automobil','macchin','taxi','bigliett','stazion','binario','fermata','viaggi','aeroporto','passegger','guidare','parcheggio'],
+ famiglia:['madre','mamma','padre','papa','figli','fratell','sorell','nonno','nonna','nipot','zii','zio','zia','genitor','marito','moglie','cugin','parente','famigli'],
+ casa:['casa','appartamento','stanza','camera','salotto','soggiorno','bagno','letto','tavolo','sedia','divano','porta','finestra','tetto','giardino','balcone','armadio','mobile','parete','pavimento'],
+ scuola:['scuola','scolast','universit','studente','alunn','insegnante','professor','maestr','compit','esame','lezion','libro','quaderno','penna','matita','classe','biblioteca'],
+ lavoro:['lavoro','lavorare','mestiere','professione','ufficio','collega','stipendio','capo','azienda','dipendente','contratto','riunione','fabbrica','turno','disoccupat'],
+ tempo:['giorno','settimana','mese','anno','ora','minuto','secondo','ieri','oggi','domani','mattina','sera','notte','lunedi','martedi','mercoledi','giovedi','venerdi','sabato','domenica'],
+ corpo:['testa','collo','spalla','braccio','mano','dita','piede','gamba','pancia','stomaco','orecchio','occhio','naso','bocca','dente','schiena','cuore','sangue'],
+ abbigliamento:['giacca','scarpa','camicia','maglietta','pantalon','vestito','gonna','calzino','cappello','cintura','guanto','maglione','stivale'],
+ emozioni:['felice','triste','paura','ansia','gioia','rabbia','amore','odio','nervos','preoccup','tranquill','content','spavent'],
+ natura:['albero','foresta','bosco','fiume','lago','montagn','mare','spiaggia','fiore','foglia','pianta','animale','cane','gatto','uccello','pioggia','sole','neve','vento'],
+ denaro:['soldi','denaro','euro','prezzo','costo','conto','pagare','comprare','vendere','acquist','banconot','moneta','sconto','resto','fattura'],
+ comunicazione:['parlare','dire','raccontare','chiedere','rispondere','scrivere','leggere','lettera','messaggio','telefonare','chiamare','conversazion','domanda','risposta','ascoltare'],
+ movimento:['andare','venire','correre','camminare','saltare','arrivare','partire','uscire','entrare','salire','scendere','muovere','spostare','fermare'],
+ colori:['colore','rosso','verde','giallo','blu','azzurr','nero','bianco','grigio','marron','viola','rosa','arancion'],
+ dimensioni:['grande','piccolo','lungo','corto','alto','basso','largo','stretto','pesante','leggero','veloce','lento']
+};
+function meaningTopics(w){
+ const text=normal(w.ref||'','it')+' '+normal(w.user||'','it');const fields=[];
+ for(const [name,stems] of Object.entries(VOCAB_SEMANTIC_FIELDS))if(stems.some(stem=>text.includes(stem)))fields.push(name);
+ return fields;
+}
+const choiceCache=new WeakMap();
+function choiceIndex(all){
+ let cached=choiceCache.get(all);if(cached)return cached;
+ const byCat=new Map(),byTopic=new Map(),topics=new Map();
+ for(const w of all){const cat=partOfSpeech(w),ts=meaningTopics(w);topics.set(w.id,ts);
+  if(!byCat.has(cat))byCat.set(cat,[]);byCat.get(cat).push(w);
+  for(const t of ts){if(!byTopic.has(t))byTopic.set(t,[]);byTopic.get(t).push(w)}
+ }
+ cached={byCat,byTopic,topics};choiceCache.set(all,cached);return cached;
+}
+function semanticChoiceOptions(w,all){
+ const a=w.ref,options=[],catalog=choiceIndex(all),cat=partOfSpeech(w),topics=catalog.topics.get(w.id)||[];
+ const pool=new Map();
+ function add(arr){for(const v of arr||[])if(v.id!==w.id)pool.set(v.id,v)}
+ for(const t of topics)add(catalog.byTopic.get(t));
+ add(catalog.byCat.get(cat));
+ const key=normal(w.de,'de').replace(/^(?:der|die|das)\s+/,'');
+ const candidates=[...pool.values()].filter(v=>{
+  if(!v.ref||v.ref===a||String(v.ref).length>95)return false;
+  if(cat!=='numero'&&/\d/.test(v.ref))return false;
+  if(sameMeaning(v.ref,a))return false;
+  if(reverseGermanAlternatives(w,all).some(x=>normal(x,'de')===normal(v.de,'de')))return false;
+  return true;
+ });
+ const ranked=candidates.map(v=>{
+  const ts=catalog.topics.get(v.id)||[],shared=ts.filter(t=>topics.includes(t)).length;
+  const vkey=normal(v.de,'de').replace(/^(?:der|die|das)\s+/,'');
+  const distance=editdist(key,vkey),similarity=Math.max(0,7-distance);
+  const lexical=variants(v.ref,'it').join(' '),target=variants(w.ref,'it').join(' ');
+  const length=Math.max(0,4-Math.abs(lexical.length-target.length)/5);
+  const score=shared*10+(partOfSpeech(v)===cat?5:0)+(v.level===w.level?2:0)+similarity*.4+length*.3+Math.random()*2.5;
+  return {v,score,shared};
+ }).sort((x,y)=>y.score-x.score);
+ for(const row of ranked){if(options.length>=3)break;if(!options.some(x=>sameMeaning(x,row.v.ref)))options.push(row.v.ref)}
+ if(options.length<3){for(const v of shuffle(all)){if(options.length>=3)break;if(v.id!==w.id&&v.ref&&v.ref!==a&&v.ref.length<95&&!sameMeaning(v.ref,a)&&!options.some(x=>sameMeaning(x,v.ref)))options.push(v.ref)}}
+ return options;
+}
 function relevantWordNote(q,submitted){if(!q.word||!submitted||submitted.score===2||!q.word.note)return '';const note=String(q.word.note);const quoted=[...note.matchAll(/«([^»]+)»/g)].map(x=>x[1]);if(!quoted.length)return '';const lang=q.language||'it',actual=variants(submitted.raw,lang);return quoted.some(x=>actual.includes(normal(x,lang)))?note:''}
 function makeWordQ(w,type,all){let base={refId:w.id,id:w.id+'|'+type,word:w,level:w.level,type,topic:label(type),prompt:'',answer:'',options:[],explanation:'',kind:'typed'};if(type==='deit'){return {...base,prompt:w.de,answer:w.ref,language:'it',hint:'Scrivi il significato in italiano.'};}if(type==='itde'){const alternatives=reverseGermanAlternatives(w);return {...base,prompt:w.ref,answer:w.de,acceptedAnswers:alternatives,reverseAmbiguity:alternatives.length?'«ganz» = intero, completo o del tutto; «alles» = tutto nel senso di ogni cosa. Senza contesto, per «tutto» sono possibili entrambe le traduzioni.':'',language:'de',hint:w.cat==='sostantivo'?'Scrivi in tedesco, includendo l’articolo del sostantivo.':'Scrivi la traduzione in tedesco.'};}if(type==='choice'){const a=w.ref,options=[],ok=v=>v.id!==w.id&&v.ref&&v.ref!==a&&String(v.ref).length<=95&&!(w.cat!=='numero'&&/\d/.test(v.ref))&&!sameMeaning(v.ref,a)&&!options.some(x=>sameMeaning(x,v.ref));const groups=[all.filter(v=>v.cat===w.cat&&v.level===w.level),all.filter(v=>v.cat===w.cat),all.filter(v=>v.level===w.level),all];for(const group of groups){for(const v of shuffle(group)){if(options.length>=3)break;if(ok(v))options.push(v.ref)}if(options.length>=3)break;}if(options.length<2)return null;return {...base,prompt:w.de,answer:a,options:shuffle([a,...options]),kind:'choice',hint:'Scegli il significato.'};}if(type==='article'){let [a,...r]=w.de.split(' ');return {...base,prompt:r.join(' '),answer:a,options:shuffle(['der','die','das']),kind:'choice',hint:'Scegli l’articolo determinativo al singolare.',explanation:w.de+(w.ref?' = '+w.ref:' · articolo determinativo')};}if(type==='plural')return {...base,prompt:w.de,answer:w.forms,language:'de',hint:'Scrivi il plurale, con o senza die.',explanation:'Plurale: die '+w.forms};if(type==='listen')return {...base,prompt:'Ascolta e trascrivi',answer:w.de,language:'de',audio:w.de,hint:'Premi Ascolta. Trascrivi anche l’articolo, se presente.',explanation:w.ref};return null;}
 function normal(s,lang='de'){let t=String(s||'').normalize('NFC').toLowerCase().trim().replace(/[’‘`]/g,"'").replace(/[.,!?;:…“”„"()]/g,' ').replace(/\s+/g,' ').trim();if(lang==='de')t=t.replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');else t=t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/^(?:(?:il|lo|la|i|gli|le|un|uno|una)\s+|l')/,'');return t;}
