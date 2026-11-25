@@ -19,9 +19,9 @@ function addKnowledgeEvent(map,event){
  if(type==='newwords'){
   const date=Date.parse(event.date)||Date.now();
   const manual=event.answer==='__KNOWN__';
-  if(manual){map[event.id]={stage:'known',hits:3,misses:0,streak:3,productions:1,manual:true,updatedAt:date,nextAt:date+14*DAY};return map}
+  if(manual){map[event.id]={stage:'known',hits:3,misses:0,streak:3,productions:1,manual:true,verifiedKnown:0,consolidatedAt:null,lastVerifiedAt:null,updatedAt:date,nextAt:date+14*DAY};return map}
   const correct=event.score===2;
-  const before=current||{hits:0,misses:0,streak:0,productions:0};
+  const before=current||{hits:0,misses:0,streak:0,productions:0,verifiedKnown:0,consolidatedAt:null,lastVerifiedAt:null};
   map[event.id]={...before,stage:'learning',manual:false,hits:(before.hits||0)+(correct?1:0),misses:(before.misses||0)+(correct?0:1),streak:correct?(before.streak||0)+1:0,updatedAt:date,nextAt:correct?date+DAY:date};
   return map;
  }
@@ -30,6 +30,7 @@ function addKnowledgeEvent(map,event){
  const date=Date.parse(event.date)||Date.now(),correct=event.score===2,wrong=event.score===0;
  let next={...current,updatedAt:date};
  if(correct){
+  if(current.stage==='known'){next.verifiedKnown=(next.verifiedKnown||0)+1;next.lastVerifiedAt=date;if(next.verifiedKnown>=10&&!next.consolidatedAt)next.consolidatedAt=date;}
   next.hits=(next.hits||0)+1;next.streak=(next.streak||0)+1;
   next.misses=Math.max(0,(next.misses||0)-1);
   if(type==='itde')next.productions=(next.productions||0)+1;
@@ -49,15 +50,17 @@ function rebuildKnowledge(){
 }
 function knowledgeStats(){
  const all=getWords(),rows=LEVELS.map(level=>{
-  const w=all.filter(x=>x.level===level&&x.de&&x.ref),known=w.filter(x=>knowledgeStage(x.id)==='known').length,learning=w.filter(x=>knowledgeStage(x.id)==='learning').length;
+  const w=all.filter(x=>x.level===level&&x.de&&x.ref),known=w.filter(x=>knowledgeStage(x.id)==='known').length,consolidated=w.filter(x=>knowledgeStage(x.id)==='known'&&(knowledgeOf(x.id)?.verifiedKnown||0)>=10).length,learning=w.filter(x=>knowledgeStage(x.id)==='learning').length;
   const es=state.events.filter(e=>e.level===level&&e.score!==null&&!['newwords','reading2'].includes(e.type)).slice(-100);
   const ratio=es.length?es.filter(e=>e.score===2).length/es.length:0;
-  return {level,total:w.length,known,learning,unknown:w.length-known-learning,attempts:es.length,success:ratio,coverage:w.length?(known+.35*learning)/w.length:0};
+  return {level,total:w.length,known,consolidated,learning,unknown:w.length-known-learning,attempts:es.length,success:ratio,coverage:w.length?(known+.35*learning)/w.length:0};
  });
  let attained='In valutazione';
  for(const row of rows){if(!row.total||row.coverage<.6||row.attempts<20||row.success<.75)break;attained=row.level}
  return {rows,attained};
 }
+function appGradedEvents(){return state.events.filter(e=>e.type!=='newwords'&&[0,1,2].includes(e.score));}
+function todayKey(date){const d=new Date(date);return Number.isFinite(d.getTime())?d.toLocaleDateString('sv-SE'):'';}
 function knowledgeGateEnabled(){return !state.prefs.unlockAll}
 function allowedWord(w){return !knowledgeGateEnabled()||knowledgeStage(w.id)!=='unknown'}
 /* Structured BANK exercises have no word ID: match the meaningful German
@@ -166,8 +169,8 @@ function discoveryNext(){
 }
 function progressPanel(){
  const summary=knowledgeStats(),rows=summary.rows;
- let table='<div class="tablebox"><table><thead><tr><th>Livello</th><th>Conosciute</th><th>In studio</th><th>Sconosciute</th><th>Corrette recenti</th></tr></thead><tbody>';
- for(const r of rows)table+='<tr><td>'+esc(r.level)+'</td><td>'+fmt(r.known)+' / '+fmt(r.total)+'</td><td>'+fmt(r.learning)+'</td><td>'+fmt(r.unknown)+'</td><td>'+(r.attempts?pct(Math.round(r.success*r.attempts),r.attempts)+'% ('+r.attempts+')':'—')+'</td></tr>';
+ let table='<div class="tablebox"><table><thead><tr><th>Livello</th><th>Conosciute</th><th>Consolidate (10+)</th><th>In studio</th><th>Sconosciute</th><th>Corrette recenti</th></tr></thead><tbody>';
+ for(const r of rows)table+='<tr><td>'+esc(r.level)+'</td><td>'+fmt(r.known)+' / '+fmt(r.total)+'</td><td>'+fmt(r.consolidated)+'</td><td>'+fmt(r.learning)+'</td><td>'+fmt(r.unknown)+'</td><td>'+(r.attempts?pct(Math.round(r.success*r.attempts),r.attempts)+'% ('+r.attempts+')':'—')+'</td></tr>';
  return '<section class="card"><h2>Conoscenza delle parole per livello</h2><p><strong>Livello stimato:</strong> '+esc(summary.attained)+'</p><p class="muted">Indicatore interno, non certificazione QCER: richiede copertura del vocabolario, almeno 20 prove recenti e il 75% di risposte corrette.</p>'+table+'</tbody></table></div><div class="divider"></div><button class="secondary" data-action="newwords">Apri Nuove parole</button></section>';
 }
 function newWords(){
